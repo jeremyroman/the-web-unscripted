@@ -1,0 +1,40 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+}
+
+form.edit {
+    display: flex;
+}
+
+form.edit input[type=image] {
+    width: 100%;
+    aspect-ratio: 1;
+}
+
+form.edit fieldset {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+}
+
+form.edit input[name=radius] {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+form.save {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+}
+
+form.save input[name=width] {
+    width: 4em;
+}

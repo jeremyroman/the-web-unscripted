@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const express = require('express');
-const {Canvas} = require('skia-canvas');
+const { Canvas } = require('skia-canvas');
 
 class Drawing {
     constructor() {
@@ -8,15 +8,16 @@ class Drawing {
         this.observers = new Set();
     }
 
-    addCircle({color, x, y, radius}) {
-        this.shapes.push({color, x, y, radius});
+    addCircle({ color, x, y, radius }) {
+        this.shapes.push({ color, x, y, radius });
         this.redraw();
     }
 
-    doDraw({width, height}) {
+    doDraw({ width, height }) {
         let canvas = new Canvas(width, height);
         let c = canvas.getContext('2d');
-        for (let {color, x, y, radius} of this.shapes) {
+        c.scale(width, height);
+        for (let { color, x, y, radius } of this.shapes) {
             c.fillStyle = color;
             c.beginPath();
             c.arc(x, y, radius, 0, 2 * Math.PI, false);
@@ -32,8 +33,9 @@ class Drawing {
         }
     }
 
-    observe({width, height}) {
-        let obs = {width, height};
+    observe({ width, height, sessionId }) {
+        let obs = { width, height, sessionId };
+        console.log('observe', obs);
         obs.ready = new Promise(resolve => obs.resolve = resolve);
         this.observers.add(obs);
         return obs;
@@ -41,6 +43,15 @@ class Drawing {
 
     stopObserving(obs) {
         this.observers.delete(obs);
+    }
+
+    getSessionWidth(targetSession) {
+        for (let { width, sessionId } of this.observers) {
+            if (sessionId == targetSession)
+                return width;
+        }
+        console.warn('unknown session', targetSession);
+        return 400;
     }
 }
 
@@ -64,50 +75,68 @@ app.get('/', (req, res) => {
 
 app.get('/live/:id.html', async (req, res) => {
     let id = req.params.id;
+    let sessionId = crypto.randomBytes(4).toString('hex');
     res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        'Accept-CH': 'Width, Sec-CH-Width, Viewport-Width, Sec-CH-Viewport-Width, DPR, Sec-CH-DPR',
     });
     res.end(`
 <!DOCTYPE html>
-<form action="/live/${id}.click">
-<input type="image" src="/live/${id}.png" width=400 height=400><br>
+<link rel="stylesheet" href="/style.css">
+<form class="edit" action="/live/${id}.click">
+<input name="session" value="${sessionId}" type="hidden">
+<input type="image" src="/live/${id}.png?session=${sessionId}" draggable="false">
+<fieldset>
+<legend>Circle tool</legend>
 <input name="color" type="color" value="#ff0000">
 <input name="radius" type="range" min="1" max="100" value="20">
+</fieldset>
 </form>
-<form action="/download/${id}.png">
-<input name="width" type="number" value="400">
+<form class="save" action="/download/${id}.png">
+Image width: <input name="width" type="number" value="400">
 <input type="submit" value="Save">
 </form>
 `);
 });
 
 app.get('/live/:id.click', async (req, res) => {
-    let drawing = getDrawing(req.params.id); 
-    drawing.addCircle({
+    let drawing = getDrawing(req.params.id);
+    let circle = {
         x: parseInt(req.query.x),
         y: parseInt(req.query.y),
         radius: parseInt(req.query.radius),
         color: req.query.color,
-    });
+    };
+
+    let width = drawing.getSessionWidth(req.query.session);
+    let scale = 1 / width;
+    console.log(width, scale);
+    circle.x *= scale;
+    circle.y *= scale;
+    circle.radius *= scale;
+
+    drawing.addCircle(circle);
     res.status(204).send();
 });
 
 app.get('/live/:id.png', async (req, res) => {
     const id = req.params.id;
+    const sessionId = req.query.session;
     const boundary = 'boundary-' + crypto.randomBytes(16).toString('hex');
     const boundaryBuf = Buffer.from(`--${boundary}\r\nContent-Type: image/png\r\n\r\n`);
+    const width = Number(req.header('Sec-Viewport-Width') || req.header('Viewport-Width') || 400);
 
     res.writeHead(200, {
         'Content-Type': `multipart/x-mixed-replace; boundary="${boundary}"`
     });
 
     let drawing = getDrawing(id);
-    let chunk = Buffer.concat([boundaryBuf, await drawing.doDraw({width: 400, height: 400}), boundaryBuf]);
+    let chunk = Buffer.concat([boundaryBuf, await drawing.doDraw({ width, height: width }), boundaryBuf]);
     await new Promise((resolve, reject) => {
         res.write(chunk, err => err ? reject(err) : resolve());
     });
-    let obs = drawing.observe({width: 400, height: 400});
+    let obs = drawing.observe({ width, height: width, sessionId });
     try {
         while (true) {
             let chunk = Buffer.concat([await obs.ready, boundaryBuf]);
@@ -118,20 +147,6 @@ app.get('/live/:id.png', async (req, res) => {
     } finally {
         drawing.stopObserving(obs);
     }
-
-    /*
-    let canvas = new Canvas(400, 300);
-    let c = canvas.getContext('2d');
-    while (true) {
-        c.fillStyle = '#' + crypto.randomBytes(3).toString('hex');
-        c.fillRect(0, 0, canvas.width, canvas.height);
-        let chunk = Buffer.concat([boundaryBuf, await canvas.png]);
-        await new Promise((resolve, reject) => {
-            res.write(chunk, err => err ? reject(err) : resolve());
-        });
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-    */
 });
 
 app.get('/download/:id.png', async (req, res) => {
@@ -141,8 +156,8 @@ app.get('/download/:id.png', async (req, res) => {
         'Content-Type': 'image/png',
         'Content-Disposition': 'attachment'
     })
-    let width = parseInt(eq.query.width);
-    res.end(await drawing.doDraw({width, height: width}));
+    let width = parseInt(req.query.width);
+    res.end(await drawing.doDraw({ width, height: width }));
 });
 
 app.listen(5000, () => {
