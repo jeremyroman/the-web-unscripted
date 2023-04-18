@@ -4,7 +4,7 @@ A toy application reflecting a journey spent without client-side scripting
 
 ## Video
 
-Link TBD (from BlinkOn 15)
+[Available here (BlinkOn 15)](https://youtu.be/oxwQ7M7PXao?t=24m58s)
 
 ## How to run
 
